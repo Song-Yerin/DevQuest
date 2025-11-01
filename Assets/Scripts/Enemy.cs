@@ -7,97 +7,162 @@ using Random = UnityEngine.Random;
 
 public class Enemy : MonoBehaviour
 {
-    [Header("Preset Fields")] 
+    [Header("Preset Fields")]
     [SerializeField] private Animator animator;
     [SerializeField] private GameObject splashFx;
-    
+    [SerializeField] private NavMeshAgent agent;
+
     [Header("Settings")]
-    [SerializeField] private float attackRange;
-    
-    public enum State 
+    [SerializeField] private float attackRange = 2f;
+    [SerializeField] private float sightRange = 8f;   // 플레이어를 보는 거리
+    [SerializeField] private float fov = 120f;        // 시야각 (정면만)
+    [SerializeField] private float wanderRadius = 6f; // 배회 반경
+
+    private Vector3 wanderTarget;
+
+    public enum State
     {
         None,
         Idle,
+        Chase,
         Attack
     }
-    
+
     [Header("Debug")]
     public State state = State.None;
     public State nextState = State.None;
 
     private bool attackDone;
+    private Transform player;
 
     private void Start()
-    { 
+    {
         state = State.None;
         nextState = State.Idle;
+        player = GameObject.FindGameObjectWithTag("Player").transform;
+
+        PickNewWanderPoint();
     }
 
     private void Update()
     {
-        //1. 스테이트 전환 상황 판단
-        if (nextState == State.None) 
+        //1. 상태 전환 조건
+        if (nextState == State.None)
         {
-            switch (state) 
+            switch (state)
             {
                 case State.Idle:
-                    //1 << 6인 이유는 Player의 Layer가 6이기 때문
-                    if (Physics.CheckSphere(transform.position, attackRange, 1 << 6, QueryTriggerInteraction.Ignore))
+                    // 플레이어가 시야 안에 있으면 Chase
+                    if (PlayerInSight())
                     {
-                        nextState = State.Attack;
+                        nextState = State.Chase;
+                    }
+                    else
+                    {
+                        // 움직이다가 목적지 도착하면 다시 랜덤 이동
+                        if (!agent.pathPending && agent.remainingDistance < 0.5f)
+                        {
+                            PickNewWanderPoint();
+                        }
                     }
                     break;
+
+                case State.Chase:
+                    // 공격 사거리 들어오면 Attack
+                    if (Vector3.Distance(transform.position, player.position) <= attackRange)
+                        nextState = State.Attack;
+
+                    // 시야에서 벗어나면 다시 Idle
+                    if (!PlayerInSight())
+                        nextState = State.Idle;
+
+                    break;
+
                 case State.Attack:
                     if (attackDone)
                     {
-                        nextState = State.Idle;
                         attackDone = false;
+                        nextState = State.Idle;
                     }
                     break;
-                //insert code here...
             }
         }
-        
-        //2. 스테이트 초기화
-        if (nextState != State.None) 
+
+        //2. 상태 초기화
+        if (nextState != State.None)
         {
             state = nextState;
             nextState = State.None;
-            switch (state) 
+
+            switch (state)
             {
                 case State.Idle:
+                    agent.isStopped = false;
+                    PickNewWanderPoint();
                     break;
+
+                case State.Chase:
+                    agent.isStopped = false;
+                    break;
+
                 case State.Attack:
+                    agent.isStopped = true;
                     Attack();
                     break;
-                //insert code here...
             }
         }
-        
-        //3. 글로벌 & 스테이트 업데이트
-        //insert code here...
+
+        //3. 글로벌 업데이트
+        if (state == State.Chase)
+        {
+            agent.SetDestination(player.position);
+        }
     }
-    
-    private void Attack() //현재 공격은 애니메이션만 작동합니다.
+
+    private bool PlayerInSight()
+    {
+        float dist = Vector3.Distance(transform.position, player.position);
+        if (dist > sightRange) return false;
+
+        Vector3 dirToPlayer = (player.position - transform.position).normalized;
+        float angle = Vector3.Angle(transform.forward, dirToPlayer);
+
+        if (angle < fov / 2f)
+            return true;
+
+        return false;
+    }
+
+    private void PickNewWanderPoint()
+    {
+        Vector3 randomDir = Random.insideUnitSphere * wanderRadius;
+        randomDir += transform.position;
+        NavMeshHit hit;
+
+        if (NavMesh.SamplePosition(randomDir, out hit, wanderRadius, NavMesh.AllAreas))
+        {
+            wanderTarget = hit.position;
+            agent.SetDestination(wanderTarget);
+        }
+    }
+
+    private void Attack()
     {
         animator.SetTrigger("attack");
     }
 
-    public void InstantiateFx() //Unity Animation Event 에서 실행됩니다.
+    public void InstantiateFx()
     {
         Instantiate(splashFx, transform.position, Quaternion.identity);
     }
-    
-    public void WhenAnimationDone() //Unity Animation Event 에서 실행됩니다.
+
+    public void WhenAnimationDone()
     {
         attackDone = true;
     }
 
-
     private void OnDrawGizmosSelected()
     {
-        //Gizmos를 사용하여 공격 범위를 Scene View에서 확인할 수 있게 합니다. (인게임에서는 볼 수 없습니다.)
-        //해당 함수는 없어도 기능 상의 문제는 없지만, 기능 체크 및 디버깅을 용이하게 합니다.
         Gizmos.color = new Color(1f, 0f, 0f, 0.5f);
         Gizmos.DrawSphere(transform.position, attackRange);
     }
