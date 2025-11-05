@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEngine.AI;
 using Random = UnityEngine.Random;
 
-public class Enemy : MonoBehaviour
+public class Enemy : MonoBehaviour, IDamageable
 {
     [Header("Preset Fields")]
     [SerializeField] private Animator animator;
@@ -17,6 +17,15 @@ public class Enemy : MonoBehaviour
     [SerializeField] private float sightRange = 8f;   // 플레이어를 보는 거리
     [SerializeField] private float fov = 120f;        // 시야각 (정면만)
     [SerializeField] private float wanderRadius = 6f; // 배회 반경
+
+    // 체력 시스템 추가 
+    [Header("Health")]
+    [SerializeField] private float maxHealth = 100f;
+    private float currentHealth;
+
+    [Header("Death Effects")]
+    [SerializeField] private GameObject deathEffect;
+    // 
 
     private Vector3 wanderTarget;
 
@@ -40,6 +49,8 @@ public class Enemy : MonoBehaviour
         state = State.None;
         nextState = State.Idle;
         player = GameObject.FindGameObjectWithTag("Player").transform;
+
+        currentHealth = maxHealth;
 
         PickNewWanderPoint();
     }
@@ -118,6 +129,38 @@ public class Enemy : MonoBehaviour
             agent.SetDestination(player.position);
         }
     }
+
+    //  IDamageable 구현 
+    public void TakeDamage(float damage)
+    {
+        currentHealth -= damage;
+        Debug.Log($"{gameObject.name} 체력: {currentHealth}/{maxHealth}");
+
+        // 피격 시 추격 모드로 전환 (선택)
+        if (state == State.Idle)
+        {
+            nextState = State.Chase;
+        }
+
+        if (currentHealth <= 0)
+        {
+            Die();
+        }
+    }
+
+    private void Die()
+    {
+        Debug.Log($"{gameObject.name} 사망!");
+
+        // 사망 이펙트
+        if (deathEffect != null)
+        {
+            Instantiate(deathEffect, transform.position, Quaternion.identity);
+        }
+
+        Destroy(gameObject);
+    }
+    // 
 
     private bool PlayerInSight()
     {
